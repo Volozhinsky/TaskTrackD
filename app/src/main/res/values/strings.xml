@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">TaskTrack</string>
+    <string name="task_title_hint">Введите наименование</string>
+    <string name="task_title_label">Наименование</string>
+    <string name="task_details_label">Описание</string>
+    <string name="task_finished_label">Закрыто</string>
+    <string name="new_task">New Task</string>
+    <string name="authorise">Sign in</string>
+</resources>
