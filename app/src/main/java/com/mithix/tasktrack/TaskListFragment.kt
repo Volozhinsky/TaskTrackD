@@ -1,28 +1,54 @@
 package com.mithix.tasktrack
 
+import android.accounts.AccountManager
+import android.app.Activity
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.*
 import android.widget.TextView
+import androidx.activity.result.ActivityResultLauncher
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
 
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
+import com.google.api.client.http.HttpTransport
+import com.google.api.client.http.javanet.NetHttpTransport
+import com.google.api.client.json.JsonFactory
+import com.google.api.client.json.gson.GsonFactory
+import com.google.api.services.tasks.Tasks
+import com.google.api.services.tasks.TasksScopes
 import java.util.*
+import java.util.logging.Level
+import java.util.logging.Logger
 
 private const val TAG = "CrimeListFragment"
+private const val PREF_ACCOUNT_NAME = "accountName"
 
-class TaskListFragment:Fragment() {
+class TaskListFragment(val settings: SharedPreferences):Fragment() {
     interface Callbacks {
         fun onTaskSelected(taskId:UUID)
     }
 
+    val LOGGING_LEVEL = Level.OFF
+    val httpTransport: HttpTransport = NetHttpTransport()
+    val jsonFactory: JsonFactory = GsonFactory.getDefaultInstance()
+    var credential: GoogleAccountCredential? = null
+    var service: Tasks? = null
+    var chooseAccountlauncer: ActivityResultLauncher<String>? = null
+
+
+
+
+    val viewModelFactory =TaskListViewModelFactory(service)
+
     private val taskListViewModel:TaskListViewModel by lazy{
-        ViewModelProvider(this).get(TaskListViewModel::class.java)
+        ViewModelProvider(this,viewModelFactory).get(TaskListViewModel::class.java)
     }
     private var callbacks :Callbacks? =null
     private lateinit var taskRecyclerView: RecyclerView
@@ -36,13 +62,48 @@ class TaskListFragment:Fragment() {
 
 
     companion object{
-        fun newInstance():TaskListFragment{
-            return TaskListFragment()
+        fun newInstance(settings: SharedPreferences):TaskListFragment{
+//            val args = Bundle().apply {
+//                putSerializable(ARG_TASK_ID,service)
+//            }
+//            return TaskFragment().apply {
+//                arguments = args
+//
+
+
+
+            return TaskListFragment(settings)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Logger.getLogger("com.google.api.client").level = LOGGING_LEVEL
+        credential =  GoogleAccountCredential.usingOAuth2(context, Collections.singleton(TasksScopes.TASKS))
+        credential?.setSelectedAccountName(settings.getString(PREF_ACCOUNT_NAME, null))
+        credential?.let {
+            chooseAccountlauncer =
+                registerForActivityResult(ChooseAccountContract(it.newChooseAccountIntent())) {
+                    if (it.resultCode == Activity.RESULT_OK && it.data != null && it.data?.extras != null) {
+                        val accountName =
+                            it.data?.extras?.getString(AccountManager.KEY_ACCOUNT_NAME)
+                        accountName?.let {
+                            credential?.setSelectedAccountName(it)
+                            val editor = settings.edit()
+                            editor.putString(PREF_ACCOUNT_NAME, accountName)
+                            editor.commit()
+                            // AsyncLoadTasks.run(this);
+                        }
+                        service =Tasks.Builder(httpTransport, jsonFactory, credential).build()
+                        taskListViewModel.loadGooglelist(service)
+                    }
+
+                }
+
+        }
+
+
+
         setHasOptionsMenu(true)
         val responseHandler =Handler(Looper.myLooper()!!)
         thumbnailDownloader = ThumbnailDownloader(responseHandler,
@@ -101,8 +162,13 @@ class TaskListFragment:Fragment() {
                 callbacks?.onTaskSelected(task.id)
                 true
             }
-            else ->  super.onOptionsItemSelected(item)
+            R.id.ChooseAcc -> {
+                chooseAccountlauncer?.launch("")
 
+
+                true
+            }
+            else ->  super.onOptionsItemSelected(item)
         }
 
     }
